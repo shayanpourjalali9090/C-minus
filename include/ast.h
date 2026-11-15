@@ -33,6 +33,10 @@ enum class ast_node_type{
     MEMBER_ACCESS,
     STRUCT,
     STRUCT_DECLARATION,
+    LABEL,
+    GOTO,
+    THIS,
+    CONSTRUCTOR,
 
 };
 
@@ -63,7 +67,7 @@ class ast{
     private:
 
 };
-
+class symbol_table;
 class ast_node{
     public:
 
@@ -78,11 +82,12 @@ class ast_node{
     void print(int depth);
 
     ast_node_type type;
-    ast_node *left,*right,*condition,*true_node,*false_node,*else_node,*element_size_reference,*operand1_node,*operand2_node;
+    ast_node *left,*right,*condition,*true_node,*false_node,*else_node,*element_size_reference,*operand1_node,*operand2_node,*expressions;
     ast args,children,elifs,indexes,elements;
     std::string value,identifier,opcode,operand1,operand2,struct_ref;
     std::vector<token> params;
-    symbol_table* table;
+    class symbol_table* table;
+    bool construct=false;
 
     private:
 

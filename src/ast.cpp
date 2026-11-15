@@ -4,19 +4,19 @@ ast_node::ast_node()
     : left(nullptr), right(nullptr), else_node(nullptr), 
     true_node(nullptr), false_node(nullptr), condition(nullptr),
     table(nullptr), element_size_reference(nullptr), operand1_node(nullptr), 
-    operand2_node(nullptr){}
+    operand2_node(nullptr), expressions(nullptr){}
 
 ast_node::ast_node(ast_node_type type, std::string value)
     : type(type), value(value), left(nullptr), right(nullptr), 
     else_node(nullptr), true_node(nullptr), false_node(nullptr), 
     condition(nullptr), table(nullptr), element_size_reference(nullptr), 
-    operand1_node(nullptr), operand2_node(nullptr){}
+    operand1_node(nullptr), operand2_node(nullptr), expressions(nullptr){}
 
 ast_node::ast_node(ast_node_type type)
     : type(type), left(nullptr), right(nullptr), 
     else_node(nullptr), true_node(nullptr), false_node(nullptr), 
     condition(nullptr), table(nullptr),element_size_reference(nullptr), 
-    operand1_node(nullptr), operand2_node(nullptr){}
+    operand1_node(nullptr), operand2_node(nullptr), expressions(nullptr){}
 
 ast_node::~ast_node(){
     delete left;
@@ -25,6 +25,10 @@ ast_node::~ast_node(){
     delete true_node;
     delete false_node;
     delete else_node;
+    delete element_size_reference;
+    delete operand1_node;
+    delete operand2_node;
+    delete expressions;
     
 }
 
@@ -86,6 +90,10 @@ std::string node_type_to_string(ast_node_type type){
         "MEMBER_ACCESS",
         "STRUCT",
         "STRUCT_DECLARATION",
+        "LABEL",
+        "GOTO",
+        "THIS",
+        "CONSTRUCTOR",
     };
 
     return node_type_strs[(int)type];

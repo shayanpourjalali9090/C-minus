@@ -1,6 +1,7 @@
 #pragma once
 
 #include "token.h"
+#include "ast.h"
 #include <vector>
 #include <string>
 
@@ -8,6 +9,8 @@ enum class symbol_type{
     FUNCTION,
     GLOBAL,
     LOCAL,
+    LABEL,
+    CONSTRUCTOR,
 
 };
 
@@ -16,11 +19,12 @@ enum class symbol_table_type{
     FUNCTION,
     BLOCK,
     STRUCT,
+    CONSTRUCTOR,
 
 };
 
 class symbol_table;
-
+class ast_node;
 class symbol{
     public:
 
@@ -33,7 +37,8 @@ class symbol{
     int base_offset;
     class symbol_table* parent_struct;
     class symbol_table* memberof_struct;
-
+    class symbol_table* constructor_table;
+    class ast_node* constructor_node;
     bool is_array=false;
 
     symbol();
@@ -58,9 +63,12 @@ class symbol_table{
     std::vector<symbol*> table;
     std::vector<symbol_table*> structs;
     std::vector<symbol*> struct_fields;
+    std::vector<symbol*> labels;
+    std::vector<symbol*> constructors;
     symbol_table* parent;
     int cur_offset,locals_count=0;
     int total_size=0;
+    int param_count=0;
     std::string name;
 
     symbol_table(symbol_table_type type);
@@ -77,9 +85,17 @@ class symbol_table{
 
     void push_struct(symbol_table* s);
 
+    void push_label(symbol* s);
+
+    symbol_table* push_constructor(symbol* s);
+
     symbol_table* lookup_struct(std::string name);
 
     symbol* lookup_field(std::string field_name, std::string struct_ref);
+
+    symbol* lookup_constructor(std::string struct_name, int argcount);
+
+    symbol* lookup_label(std::string label);
 
     void push_params(std::vector<token> &params);
 

@@ -12,6 +12,7 @@ token::token(std::string str){
     :is_register(str)?token_type::REGISTER
     :is_asm_keyword(str)?token_type::ASM
     :is_keyword(str)?token_type::KEYWORD
+    :is_other_keyword(str)?token_type::OTHER
     :token_type::IDENTIFIER;
     
     value=str;
@@ -82,7 +83,7 @@ token token_list::advance(){
 }
 
 bool token_list::match(std::string value){
-    return peek().value==value;
+    return peek().value==value && peek().type!=token_type::STRING;
 }
 
 bool token_list::match(token_type type){

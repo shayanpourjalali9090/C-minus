@@ -19,7 +19,7 @@ symbol::symbol(std::string name, int offset)
     : name(name), offset(offset), parent_struct(nullptr){}
 
 std::string symbol::get_address(){
-    if (type==symbol_type::GLOBAL || type==symbol_type::FUNCTION){
+    if (type==symbol_type::GLOBAL || type==symbol_type::FUNCTION || type==symbol_type::LABEL || type==symbol_type::CONSTRUCTOR){
         return get_nasm_label();
     }
 
@@ -89,6 +89,16 @@ symbol* symbol_table::lookup_field(std::string field_name, std::string struct_re
 
 }
 
+symbol* symbol_table::lookup_label(std::string label){
+    for (int i=0;i<labels.size();i++){
+        if (labels.at(i)->name==label)return labels.at(i);
+    }
+    
+    if (parent!=nullptr)return parent->lookup_label(label);
+
+    return nullptr;
+}
+
 void symbol_table::inc_locals_count(){
     if (type==symbol_table_type::GLOBAL)return;
 
@@ -103,7 +113,7 @@ void symbol_table::inc_locals_count(){
 }
 
 void symbol_table::increase_total_size(int size){
-    if (type==symbol_table_type::FUNCTION || type==symbol_table_type::STRUCT){
+    if (type==symbol_table_type::FUNCTION || type==symbol_table_type::STRUCT || type==symbol_table_type::CONSTRUCTOR){
         total_size+=size;
     }
     else{
@@ -120,14 +130,34 @@ void symbol_table::push(symbol* s){
     
 }
 
+symbol_table* symbol_table::push_constructor(symbol* s){
+    symbol_table* cur=this;
+
+    while (cur->type!=symbol_table_type::GLOBAL){
+        cur=cur->parent;
+    }
+
+    cur->constructors.push_back(s);
+
+    return cur;
+
+}
+
 inline std::string symbol::get_nasm_label(){
+    if (type==symbol_type::CONSTRUCTOR){
+        return "??"+name+std::to_string(constructor_table->param_count);
+    }
     return '?'+name;
 }
 
 void symbol_table::push_params(std::vector<token> &params){
-    int offset=16;
+    int offset;
+
+    if (type==symbol_table_type::CONSTRUCTOR)offset=24;
+    else offset=16;
     
     for (int i=0;i<params.size();i++){
+        param_count++;
 
         symbol* s=new symbol(symbol_type::LOCAL);
         s->offset=offset;
@@ -151,4 +181,25 @@ void symbol_table::push_struct(symbol_table* struct_table){
 
     }
 
+}
+
+void symbol_table::push_label(symbol* s){
+    labels.push_back(s);
+
+}
+
+symbol* symbol_table::lookup_constructor(std::string struct_name, int argcount){
+    
+    symbol_table* cur=this;
+    while (cur->type!=symbol_table_type::GLOBAL)cur=cur->parent;
+
+    for (int i=0;i<cur->constructors.size();i++){
+        if (cur->constructors.at(i)->name==struct_name && 
+        cur->constructors.at(i)->constructor_table->param_count==argcount){
+            return cur->constructors.at(i);
+        }
+        
+    }
+    return nullptr;
+    
 }

@@ -13,6 +13,7 @@ enum class token_type{
     REGISTER,
     ASM,
     END_OF_FILE,
+    OTHER,
 
 };
 

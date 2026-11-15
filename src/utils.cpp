@@ -19,8 +19,14 @@ const std::string operators[]={
 
 const std::string keywords[]={
     "let","while","if","else","func",
-    "return","break","continue","true","false",
-    "NULL", "sizeof", "struct",
+    "return","break","continue",
+    "struct", "goto", "constructor",
+
+};
+
+const std::string other_keywords[]={
+    "this","NULL","true","false","sizeof",
+
 };
 
 const std::string asm_keywords[]={
@@ -174,6 +180,13 @@ bool is_operator(std::string &str){
         if (str==op)return true;
     }
     
+    return false;
+}
+
+bool is_other_keyword(std::string str){
+    for (std::string ok:other_keywords){
+        if (ok==str)return true;
+    }
     return false;
 }
 
