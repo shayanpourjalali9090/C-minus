@@ -148,3 +148,7 @@ void ast::print(int depth){
     }
 
 }
+
+void ast::insert(int index, ast_node* node){
+    tree.insert(tree.begin()+index, node);
+}

@@ -60,9 +60,11 @@ class ast{
 
     bool empty();
 
-    void push(ast_node *node);
+    void push(ast_node* node);
 
     void print(int depth);
+
+    void insert(int index, ast_node* node);
 
     private:
 

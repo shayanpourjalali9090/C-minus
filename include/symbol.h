@@ -11,6 +11,7 @@ enum class symbol_type{
     LOCAL,
     LABEL,
     CONSTRUCTOR,
+    METHOD,
 
 };
 
@@ -20,6 +21,7 @@ enum class symbol_table_type{
     BLOCK,
     STRUCT,
     CONSTRUCTOR,
+    METHOD,
 
 };
 
@@ -38,6 +40,8 @@ class symbol{
     class symbol_table* parent_struct;
     class symbol_table* memberof_struct;
     class symbol_table* constructor_table;
+    class symbol_table* method_table;
+    class ast_node* method_node;
     class ast_node* constructor_node;
     bool is_array=false;
 
@@ -65,6 +69,7 @@ class symbol_table{
     std::vector<symbol*> struct_fields;
     std::vector<symbol*> labels;
     std::vector<symbol*> constructors;
+    std::vector<symbol*> methods;
     symbol_table* parent;
     int cur_offset,locals_count=0;
     int total_size=0;
@@ -89,11 +94,15 @@ class symbol_table{
 
     symbol_table* push_constructor(symbol* s);
 
+    symbol_table* push_method(symbol* s);
+
     symbol_table* lookup_struct(std::string name);
 
     symbol* lookup_field(std::string field_name, std::string struct_ref);
 
     symbol* lookup_constructor(std::string struct_name, int argcount);
+
+    symbol* lookup_method(std::string name, std::string struct_name, int argcount);
 
     symbol* lookup_label(std::string label);
 

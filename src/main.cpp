@@ -582,6 +582,7 @@ ast_node* parse_logical_or(token_list &list);
 ast_node* parse_shift(token_list &list);
 
 ast_node* parse_primary(token_list &list){
+    std::cout << "In parse primary: " << list.peek().to_string() << '\n';
 
     if (list.match(token_type::NUMBER)){
         ast_node* node=new ast_node(ast_node_type::NUMBER);
@@ -664,7 +665,7 @@ ast_node* parse_primary(token_list &list){
         node->value=list.expect(token_type::STRING).value;
         return node;
     }
-
+    printf("Returning nullptr\n");
     return nullptr;
 
 }
@@ -672,7 +673,7 @@ ast_node* parse_primary(token_list &list){
 ast_node* parse_member_access(token_list &list){
     ast_node* node=parse_primary(list);
 
-    if (node->type==ast_node_type::IDENTIFIER && list.match("@")){
+    if (node && (node->type==ast_node_type::IDENTIFIER || node->type==ast_node_type::FUNCTION_CALL) && list.match("@")){
         list++;
         token t=list++;
         if (t.type!=token_type::IDENTIFIER){
@@ -702,7 +703,7 @@ ast_node* parse_member_access(token_list &list){
 ast_node* parse_array_access(token_list &list){
     ast_node* node=parse_member_access(list);
 
-    if (list.match("[") && (node->type==ast_node_type::IDENTIFIER || node->type==ast_node_type::MEMBER_ACCESS)){
+    if (node && list.match("[") && (node->type==ast_node_type::IDENTIFIER || node->type==ast_node_type::MEMBER_ACCESS)){
         ast_node* node2=new ast_node(ast_node_type::ARRAY_ACCESS);
 
         do{
@@ -1049,9 +1050,24 @@ ast_node* parse_declaration(token_list &list){
             (node->element_size_reference->type!=ast_node_type::NUMBER && node->element_size_reference->type!=ast_node_type::SIZEOF)){
             emit_error(error::SYNTAX_ERROR,"Element size reference must be constant in declaration",lineno);
         }
-        
+
+        int i=0;
+        bool first_size_empty=false;
         do{
             list.expect("[");
+
+            if (list.match("]")){
+                if (i){
+                    emit_error(error::SYNTAX_ERROR,"Empty size not allowed here",list.peek().line_number);
+                }
+
+                list.expect("]");
+                first_size_empty=true;
+
+                if (list.match("["))continue;
+                else break;
+
+            }
 
             int lineno2=list.peek().line_number;
 
@@ -1059,12 +1075,18 @@ ast_node* parse_declaration(token_list &list){
             if (index->type!=ast_node_type::NUMBER){
                 emit_error(error::SYNTAX_ERROR,"Array size(s) must be constant in declaration", lineno2);
             }
+
             node->indexes.push(index);
             list.expect("]");
+
+            i++;
 
         }while (list.match("["));
 
         if (list.match(";")){
+            if (first_size_empty){
+                emit_error(error::SYNTAX_ERROR,"Empty array size implies a declaration",list.peek().line_number);
+            }
             list.expect(";");
             return node;
         }
@@ -1074,6 +1096,13 @@ ast_node* parse_declaration(token_list &list){
         node->right=parse_array(list);
 
         list.expect(";");
+
+        if (first_size_empty){
+            ast_node* firstsize=new ast_node(ast_node_type::NUMBER);
+            firstsize->value=std::to_string(node->right->elements.size());
+
+            node->indexes.insert(0,firstsize);
+        }
 
         return node;
 
@@ -1325,10 +1354,8 @@ ast_node* parse_constructor(token_list &list){
     list.expect("{");
 
     while (!list.match("}")){
-        // std::cout << list.peek().to_string() << '\n';
         ast_node* statement=parse_statement(list);
         if (statement!=nullptr)node->children.push(statement);
-        
 
     }
 
@@ -1357,15 +1384,18 @@ ast_node* parse_struct(token_list &list){
             decl=parse_statement(list);
         }
 
+        if (decl==nullptr)continue;
 
-        if (decl!=nullptr && decl->type!=ast_node_type::ARRAY_DECLARATION && decl->type!=ast_node_type::DECLARATION && decl->type!=ast_node_type::STRUCT_DECLARATION && decl->type!=ast_node_type::CONSTRUCTOR){
+        if (decl->type!=ast_node_type::ARRAY_DECLARATION && decl->type!=ast_node_type::DECLARATION && 
+            decl->type!=ast_node_type::STRUCT_DECLARATION && decl->type!=ast_node_type::CONSTRUCTOR &&
+            decl->type!=ast_node_type::FUNCTION_DEFINITION){
             emit_error(error::SYNTAX_ERROR,"Illegal statement within struct '"+node->identifier+"' definition");
         }
-
-        if (decl==nullptr)continue;
+        
         if (decl->right){
             emit_error(error::SYNTAX_ERROR,"Assignments not allowed in struct definition");
         }
+
         node->children.push(decl);
         
         
@@ -1473,6 +1503,7 @@ ast_node* parse_statement(token_list &list){
         }
         ast_node* node=parse_expression(list,true);
         list.expect(";");
+        std::cout << "returning node: " << (node==nullptr) << '\n';
         return node;
     }
 
@@ -1483,6 +1514,7 @@ ast parse(token_list &list){
 
     while (!list.end()){
         ast_node* node=parse_statement(list);
+        std::cout << (node==nullptr) << '\n';
         if (node!=nullptr)tree.push(node);
     }
     
@@ -1589,7 +1621,6 @@ void build_symbol_table(ast_node* node, symbol_table* table){
 
     }
     else if (node->type==ast_node_type::CONSTRUCTOR){
-        
         if (table->type!=symbol_table_type::STRUCT){
             emit_error(error::SEMANTIC_ERROR,"Constructor outside struct");
         }
@@ -1647,6 +1678,26 @@ void build_symbol_table(ast_node* node, symbol_table* table){
 
     }
     else if (node->type==ast_node_type::FUNCTION_DEFINITION){
+        if (table->type==symbol_table_type::STRUCT){
+            symbol* s=new symbol(node->identifier);
+            s->type=symbol_type::METHOD;
+            s->memberof_struct=table;
+
+            symbol_table* global=table->push_method(s);
+            node->table=s->method_table=new symbol_table(symbol_table_type::METHOD,global,0);
+
+            s->method_node=node;
+            
+            for (int i=0;i<node->children.size();i++){
+                build_symbol_table(node->children.get(i),s->method_table);
+            }
+
+            s->method_table->push_params(node->params);
+
+            return;
+
+        }
+
         symbol* s=new symbol(node->identifier);
         s->type=symbol_type::FUNCTION;
         table->push(s);
@@ -1684,6 +1735,9 @@ void build_symbol_table(ast_node* node, symbol_table* table){
 #ifndef EXIT
 #define EXIT std::exit(0);
 #endif
+
+void generate_expression(asm_program &program, asm_function* function, symbol_table* table, ast_node* node, bool get_address);
+
 symbol* generate_member_access(asm_program &program, asm_function* function, symbol_table* table, ast_node* node){
     if (node->left->type==ast_node_type::THIS){
         function->push(instruction("LEA","RAX","[RBP+16]"));
@@ -1720,6 +1774,28 @@ symbol* generate_member_access(asm_program &program, asm_function* function, sym
         }
 
         cur=cur->right;
+
+    }
+
+    if (cur->type==ast_node_type::FUNCTION_CALL){
+        symbol* s=table->lookup_method(cur->identifier,cur->struct_ref,cur->args.size());
+        if (s==nullptr){
+            emit_error(error::CODE_GENERATION_ERROR,"Unknown method '"+cur->identifier+"'");
+
+        }
+
+        for (int i=cur->args.size()-1;i>=0;i--){
+            function->push(instruction("PUSH","RAX"));
+            generate_expression(program,function,table,cur->args.get(i),false);
+            function->push(instruction("MOV","RBX","RAX"));
+            function->push(instruction("POP","RAX"));
+            function->push(instruction("PUSH","RBX"));
+
+        }
+
+        function->push(instruction("PUSH","RAX"));
+        function->push(instruction("CALL",s->get_address()));
+        return s;
 
     }
 
@@ -1943,14 +2019,20 @@ void generate_expression(asm_program &program, asm_function* function, symbol_ta
         std::string donel=function->create_local_label();
 
         function->push(instruction("MOV","RBX","0"));
+        function->push(instruction("PUSH","RBX"));
+
         generate_expression(program,function,table,node->left,false);
         function->push(instruction("CMP","RAX","0"));
         function->push(instruction("JE",donel));
         generate_expression(program,function,table,node->right,false);
         function->push(instruction("CMP","RAX","0"));
         function->push(instruction("JE",donel));
+        function->push(instruction("POP","RBX"));
         function->push(instruction("MOV","RBX","1"));
+        function->push(instruction("PUSH","RBX"));
+
         function->push_local_label(donel);
+        function->push(instruction("POP","RBX"));
         function->push(instruction("MOV","RAX","RBX"));
 
     }
@@ -1958,14 +2040,21 @@ void generate_expression(asm_program &program, asm_function* function, symbol_ta
         std::string donel=function->create_local_label();
 
         function->push(instruction("MOV","RBX","1"));
+        function->push(instruction("PUSH","RBX"));
+
         generate_expression(program,function,table,node->left,false);
         function->push(instruction("CMP","RAX","0"));
         function->push(instruction("JNE",donel));
+
         generate_expression(program,function,table,node->right,false);
         function->push(instruction("CMP","RAX","0"));
         function->push(instruction("JNE",donel));
+        function->push(instruction("POP","RBX"));
         function->push(instruction("MOV","RBX","0"));
+        function->push(instruction("PUSH","RBX"));
+
         function->push_local_label(donel);
+        function->push(instruction("POP","RBX"));
         function->push(instruction("MOV","RAX","RBX"));
 
     }
@@ -2154,23 +2243,30 @@ void generate_expression(asm_program &program, asm_function* function, symbol_ta
 
     }
     else if (node->type==ast_node_type::MEMBER_ACCESS){
-        generate_member_access(program,function,table,node);
+        symbol* s=generate_member_access(program,function,table,node);
 
-        if (!get_address){
-            function->push(instruction("MOV","RAX","[RAX]"));
+        if (s->type!=symbol_type::METHOD){
+            if (!get_address){
+                function->push(instruction("MOV","RAX","[RAX]"));
 
-        }
-        else{
-            function->push(instruction("MOV","R8","8"));
+            }
+            else{
+                function->push(instruction("MOV","R8","8"));
 
+            }
         }
         
 
     }
     else if (node->type==ast_node_type::SIZEOF){
+        symbol* s=table->lookup(node->identifier);
+        if (s!=nullptr){
+            function->push(instruction("MOV","RAX",std::to_string(s->size)));
+            return;
+        }
         symbol_table* strct=table->lookup_struct(node->identifier);
         if (strct==nullptr){
-            emit_error(error::CODE_GENERATION_ERROR,"Unknown struct: '"+node->identifier+"'");
+            emit_error(error::CODE_GENERATION_ERROR,"Unknown symbol: '"+node->identifier+"'");
         }
 
         function->push(instruction("MOV","RAX",std::to_string(strct->total_size)));
@@ -2379,7 +2475,7 @@ void generate_expression(asm_program &program, asm_function* function, symbol_ta
         function->push(instruction("MOV","RAX",str));
     }
     else if (node->type==ast_node_type::THIS){
-        function->push(instruction("LEA","RAX","[RBP+16]"));
+        function->push(instruction("MOV","RAX","[RBP+16]"));
 
     }
     else if (node->type==ast_node_type::IDENTIFIER){
@@ -2861,6 +2957,30 @@ void generate_constructor(asm_program &program, symbol* s, ast_node* node){
     
 }
 
+void generate_method(asm_program &program, symbol* s, ast_node* node){
+    asm_function* method=new asm_function("?"+s->name+std::to_string(s->method_table->param_count));
+
+    symbol_table* table=node->table;
+
+    method->push(instruction("PUSH","RBP"));
+    method->push(instruction("MOV","RBP","RSP"));
+
+    if (table->total_size){
+        method->push(instruction("SUB","RSP",std::to_string(table->total_size)));
+    }
+
+    for (int i=0;i<node->children.size();i++){
+        ast_node* statement=node->children.get(i);
+        generate_statement(program,method,table,statement);
+
+    }
+
+    generate_epilogue(method);
+
+    program.push_function(method);
+
+}
+
 void generate_code(asm_program &program, symbol_table* table, ast &tree){
     program._start.push(instruction("MOV","R8","8"));
 
@@ -2874,6 +2994,11 @@ void generate_code(asm_program &program, symbol_table* table, ast &tree){
     
     for (int i=0;i<table->constructors.size();i++){
         generate_constructor(program,table->constructors.at(i),table->constructors.at(i)->constructor_node);
+
+    }
+
+    for (int i=0;i<table->methods.size();i++){
+        generate_method(program,table->methods.at(i),table->methods.at(i)->method_node);
 
     }
 
@@ -3050,7 +3175,7 @@ int main(int argc, char** argv){
     token_list tokens=lex(file);
 
     remove_includes(tokens);
-    
+    // return 0;
     ast tree=parse(tokens);
     // tree.print(0);
     // return 0;
