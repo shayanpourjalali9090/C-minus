@@ -1684,7 +1684,8 @@ void build_symbol_table(ast_node* node, symbol_table* table){
             s->memberof_struct=table;
 
             symbol_table* global=table->push_method(s);
-            node->table=s->method_table=new symbol_table(symbol_table_type::METHOD,global,0);
+            node->table=new symbol_table(symbol_table_type::METHOD,global,0);
+            s->method_table=node->table;
 
             s->method_node=node;
             
@@ -1795,6 +1796,9 @@ symbol* generate_member_access(asm_program &program, asm_function* function, sym
 
         function->push(instruction("PUSH","RAX"));
         function->push(instruction("CALL",s->get_address()));
+
+        function->push(instruction("ADD","RSP",std::to_string(8+cur->args.size()*8)));
+
         return s;
 
     }
@@ -2985,9 +2989,8 @@ void generate_code(asm_program &program, symbol_table* table, ast &tree){
     program._start.push(instruction("MOV","R8","8"));
 
     {
-        std::string tmp="main";
 
-        if (table->lookup(tmp)==nullptr){
+        if (table->lookup("main")==nullptr){
             emit_error(error::CODE_GENERATION_ERROR,"No main function");
         }
     }

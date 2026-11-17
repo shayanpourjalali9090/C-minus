@@ -115,7 +115,7 @@ void symbol_table::inc_locals_count(){
 }
 
 void symbol_table::increase_total_size(int size){
-    if (type==symbol_table_type::FUNCTION || type==symbol_table_type::STRUCT || type==symbol_table_type::CONSTRUCTOR){
+    if (type==symbol_table_type::FUNCTION || type==symbol_table_type::STRUCT || type==symbol_table_type::CONSTRUCTOR || type==symbol_table_type::METHOD){
         total_size+=size;
     }
     else if (parent){
