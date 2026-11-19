@@ -38,10 +38,10 @@ std::string symbol::get_address(){
 }
 
 symbol_table::symbol_table(symbol_table_type type)
-    : type(type), parent(nullptr){}
+    : type(type), parent(nullptr), parent_struct(nullptr){}
 
 symbol_table::symbol_table(symbol_table_type type, symbol_table* parent, int offset)
-    : type(type), parent(parent), cur_offset(offset){}
+    : type(type), parent(parent), cur_offset(offset), parent_struct(nullptr){}
 
 symbol* symbol_table::lookup(std::string identifier){
     for (int i=0;i<table.size();i++){
@@ -53,6 +53,13 @@ symbol* symbol_table::lookup(std::string identifier){
         return parent->lookup(identifier);
 
     return nullptr;
+}
+
+symbol_table* symbol_table::lookup_parent_struct(){
+    if (parent_struct!=nullptr)return parent_struct;
+    if (parent!=nullptr)return parent->lookup_parent_struct();
+    return nullptr;
+
 }
 
 symbol_table* symbol_table::lookup_struct(std::string identifier){
@@ -160,7 +167,7 @@ inline std::string symbol::get_nasm_label(){
         return "??"+name+std::to_string(constructor_table->param_count);
     }
     if (type==symbol_type::METHOD){
-        return "??"+name+std::to_string(method_table->param_count);
+        return "??"+parent_struct->name+name+std::to_string(method_table->param_count);
     }
     return '?'+name;
 }

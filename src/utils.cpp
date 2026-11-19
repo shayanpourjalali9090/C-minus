@@ -34,7 +34,7 @@ const std::string asm_keywords[]={
     "JGE","JL","JLE","JNE","JE","CALL","RET",
     "CMP", "SHR", "SHL", "INC","DEC","SYSCALL",
     "CALL","PUSH","POP","MOVZX","RDTSC","AND","OR",
-    "XOR",
+    "XOR", "REP", "MOVSB", "STOSB", "CLD",
 };
 
 const std::string registers[]={
@@ -80,7 +80,7 @@ bool is_reg64(std::string str){
         || str=="R12" || str=="R13" || str=="R14";
 }
 
-bool is_asm_keyword(std::string &str){
+bool is_asm_keyword(std::string str){
     for (std::string as:asm_keywords){
         if (as==str)return true;
     }
@@ -272,12 +272,12 @@ std::string sformat(std::string str, ...){
 }
 
 int get_asm_instruction_length(std::string &keyword){
-    if (keyword=="RET" || keyword=="SYSCALL" || keyword=="RDTSC")return 1;
+    if (keyword=="RET" || keyword=="SYSCALL" || keyword=="RDTSC" || keyword=="MOVSB" || keyword=="STOSB" || keyword=="CLD")return 1;
     if (keyword=="CALL" || keyword=="INC" || keyword=="DEC" 
         || keyword=="IDIV" || keyword=="JMP" || keyword=="JG" 
         || keyword=="JGE" || keyword=="JL" || keyword=="JLE" 
         || keyword=="JE" || keyword=="JNE" || keyword=="PUSH" 
-        || keyword=="POP")return 2;
+        || keyword=="POP" || keyword=="REP")return 2;
     
     return 3;
 

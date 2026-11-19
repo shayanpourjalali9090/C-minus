@@ -18,7 +18,7 @@ bool is_reg32(std::string str);
 
 bool is_reg64(std::string str);
 
-bool is_asm_keyword(std::string &str);
+bool is_asm_keyword(std::string str);
 
 void is_hex(std::string str);
 

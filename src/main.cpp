@@ -582,7 +582,7 @@ ast_node* parse_logical_or(token_list &list);
 ast_node* parse_shift(token_list &list);
 
 ast_node* parse_primary(token_list &list){
-    std::cout << "In parse primary: " << list.peek().to_string() << '\n';
+    // std::cout << "In parse primary: " << list.peek().to_string() << '\n';
 
     if (list.match(token_type::NUMBER)){
         ast_node* node=new ast_node(ast_node_type::NUMBER);
@@ -673,7 +673,7 @@ ast_node* parse_primary(token_list &list){
 ast_node* parse_member_access(token_list &list){
     ast_node* node=parse_primary(list);
 
-    if (node && (node->type==ast_node_type::IDENTIFIER || node->type==ast_node_type::FUNCTION_CALL) && list.match("@")){
+    if (node && (node->type==ast_node_type::IDENTIFIER || node->type==ast_node_type::FUNCTION_CALL || node->type==ast_node_type::THIS) && list.match("@")){
         list++;
         token t=list++;
         if (t.type!=token_type::IDENTIFIER){
@@ -730,7 +730,7 @@ ast_node* parse_ptr_access(token_list &list){
         ast_node* node2=new ast_node(ast_node_type::PTR_ACCESS);
 
         list.expect("$");
-        node2->element_size_reference=parse_expression(list,false);
+        node2->element_size_reference=parse_primary(list);
 
         do{
             list.expect("[");
@@ -1298,7 +1298,7 @@ ast_node* parse_asm_statement(token_list &list){
         parse_asm_mem_operand(list,node,true);
 
     }
-    else if (is_register(list.peek().value) || list.peek().type==token_type::NUMBER){
+    else if (is_register(list.peek().value) || list.peek().type==token_type::NUMBER || is_asm_keyword(list.peek().value)){
         node->operand1=list++.value;
 
     }
@@ -1320,7 +1320,7 @@ ast_node* parse_asm_statement(token_list &list){
         }
         parse_asm_mem_operand(list,node,false);
     }
-    else if (is_register(list.peek().value) || list.peek().type==token_type::NUMBER){
+    else if (is_register(list.peek().value) || list.peek().type==token_type::NUMBER || is_asm_keyword(list.peek().value)){
         node->operand2=list++.value;
     }
     else{
@@ -1630,7 +1630,8 @@ void build_symbol_table(ast_node* node, symbol_table* table){
 
         symbol_table* global=table->push_constructor(s);
         symbol_table* constructor_table=new symbol_table(symbol_table_type::CONSTRUCTOR,global,0);
-        
+
+        constructor_table->parent_struct=table;
         s->constructor_node=node;
         node->table=constructor_table;
         s->constructor_table=constructor_table;
@@ -1681,11 +1682,12 @@ void build_symbol_table(ast_node* node, symbol_table* table){
         if (table->type==symbol_table_type::STRUCT){
             symbol* s=new symbol(node->identifier);
             s->type=symbol_type::METHOD;
-            s->memberof_struct=table;
+            s->memberof_struct=s->parent_struct=table;
 
             symbol_table* global=table->push_method(s);
             node->table=new symbol_table(symbol_table_type::METHOD,global,0);
             s->method_table=node->table;
+            s->method_table->parent_struct=table;
 
             s->method_node=node;
             
@@ -1740,20 +1742,31 @@ void build_symbol_table(ast_node* node, symbol_table* table){
 void generate_expression(asm_program &program, asm_function* function, symbol_table* table, ast_node* node, bool get_address);
 
 symbol* generate_member_access(asm_program &program, asm_function* function, symbol_table* table, ast_node* node){
+    std::string struct_ref;
+
     if (node->left->type==ast_node_type::THIS){
         function->push(instruction("LEA","RAX","[RBP+16]"));
+        struct_ref=table->lookup_parent_struct()->name;
 
     }
     else{
         symbol *s = table->lookup(node->left->identifier);
-
+        if (s==nullptr){
+            emit_error(error::CODE_GENERATION_ERROR,"Unknown symbol '"+node->left->identifier+"'");
+        }
+        if (s->parent_struct!=nullptr){
+            struct_ref=s->parent_struct->name;
+        }
+        else {
+            struct_ref=node->left->struct_ref;
+        }
         function->push(instruction("LEA", "RAX", "[" + s->get_address() + "]"));
 
         if (s->type == symbol_type::GLOBAL && s->parent_struct != nullptr){
             function->push(instruction("MOV", "RAX", "[RAX]"));
         }
     }
-
+    
     ast_node* cur=node;
     
     if (cur->value=="->"){
@@ -1763,7 +1776,29 @@ symbol* generate_member_access(asm_program &program, asm_function* function, sym
     cur=cur->right;
 
     while (cur->type==ast_node_type::MEMBER_ACCESS){
-        symbol* field=table->lookup_field(cur->left->identifier,cur->left->struct_ref);
+        symbol* field;
+        if (!struct_ref.empty()){
+            field=table->lookup_field(cur->left->identifier,struct_ref);
+            if (field==nullptr)goto ERR;
+            if (field->parent_struct != nullptr){
+                struct_ref = field->parent_struct->name;
+            }
+            else{
+                struct_ref = node->left->struct_ref;
+            }
+        }
+        else{
+            field=table->lookup_field(cur->left->identifier,cur->left->struct_ref);
+            if (field==nullptr)goto ERR;
+            if (field->parent_struct != nullptr){
+                struct_ref = field->parent_struct->name;
+            }
+            else{
+                struct_ref = node->left->struct_ref;
+            }
+
+        }
+        ERR:
         if (field==nullptr){
             emit_error(error::CODE_GENERATION_ERROR,"Unknown struct field: '"+cur->left->identifier+"'");
         }
@@ -1779,7 +1814,14 @@ symbol* generate_member_access(asm_program &program, asm_function* function, sym
     }
 
     if (cur->type==ast_node_type::FUNCTION_CALL){
-        symbol* s=table->lookup_method(cur->identifier,cur->struct_ref,cur->args.size());
+        symbol* s;
+        if (!struct_ref.empty()){
+            s=table->lookup_method(cur->identifier,struct_ref,cur->args.size());
+        }
+        else{
+            s=table->lookup_method(cur->identifier,cur->struct_ref,cur->args.size());
+        }
+
         if (s==nullptr){
             emit_error(error::CODE_GENERATION_ERROR,"Unknown method '"+cur->identifier+"'");
 
@@ -1802,15 +1844,20 @@ symbol* generate_member_access(asm_program &program, asm_function* function, sym
         return s;
 
     }
-
-    symbol* field=table->lookup_field(cur->identifier,cur->struct_ref);
+    symbol* field;
+    if (!struct_ref.empty()){
+        field=table->lookup_field(cur->identifier,struct_ref);
+    }
+    else{
+        field=table->lookup_field(cur->identifier,cur->struct_ref);
+    }
 
     if (field==nullptr){
         emit_error(error::CODE_GENERATION_ERROR, "Unknown struct field: '" + cur->identifier + "'");
     }
 
     function->push(instruction("ADD","RAX",std::to_string(field->offset)));
-
+    
     return field;
 
 }
@@ -2962,7 +3009,7 @@ void generate_constructor(asm_program &program, symbol* s, ast_node* node){
 }
 
 void generate_method(asm_program &program, symbol* s, ast_node* node){
-    asm_function* method=new asm_function("?"+s->name+std::to_string(s->method_table->param_count));
+    asm_function* method=new asm_function("?"+s->parent_struct->name+s->name+std::to_string(s->method_table->param_count));
 
     symbol_table* table=node->table;
 

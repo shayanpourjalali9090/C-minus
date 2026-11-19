@@ -71,6 +71,7 @@ class symbol_table{
     std::vector<symbol*> constructors;
     std::vector<symbol*> methods;
     symbol_table* parent;
+    symbol_table* parent_struct;
     int cur_offset,locals_count=0;
     int total_size=0;
     int param_count=0;
@@ -97,6 +98,8 @@ class symbol_table{
     symbol_table* push_method(symbol* s);
 
     symbol_table* lookup_struct(std::string name);
+
+    symbol_table* lookup_parent_struct();
 
     symbol* lookup_field(std::string field_name, std::string struct_ref);
 
