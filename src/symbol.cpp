@@ -21,7 +21,7 @@ symbol::symbol(std::string name, int offset)
 std::string symbol::get_address(){
     if (type==symbol_type::GLOBAL || type==symbol_type::FUNCTION || 
         type==symbol_type::LABEL || type==symbol_type::CONSTRUCTOR || 
-        type==symbol_type::METHOD){
+        type==symbol_type::METHOD || type==symbol_type::DESTRUCTOR){
         return get_nasm_label();
     }
 
@@ -122,7 +122,7 @@ void symbol_table::inc_locals_count(){
 }
 
 void symbol_table::increase_total_size(int size){
-    if (type==symbol_table_type::FUNCTION || type==symbol_table_type::STRUCT || type==symbol_table_type::CONSTRUCTOR || type==symbol_table_type::METHOD){
+    if (type==symbol_table_type::FUNCTION || type==symbol_table_type::STRUCT || type==symbol_table_type::CONSTRUCTOR || type==symbol_table_type::DESTRUCTOR || type==symbol_table_type::METHOD){
         total_size+=size;
     }
     else if (parent){
@@ -137,6 +137,19 @@ void symbol_table::push(symbol* s){
 
     }
     
+}
+
+symbol_table* symbol_table::push_destructor(symbol* s){
+    symbol_table* cur=this;
+
+    while (cur->type!=symbol_table_type::GLOBAL){
+        cur=cur->parent;
+    }
+
+    cur->destructors.push_back(s);
+
+    return cur;
+
 }
 
 symbol_table* symbol_table::push_constructor(symbol* s){
@@ -163,6 +176,12 @@ symbol_table* symbol_table::push_method(symbol* s){
 }
 
 inline std::string symbol::get_nasm_label(){
+    if (type==symbol_type::LABEL){
+        return "????"+name;
+    }
+    if (type==symbol_type::DESTRUCTOR){
+        return "???"+name;
+    }
     if (type==symbol_type::CONSTRUCTOR){
         return "??"+name+std::to_string(constructor_table->param_count);
     }
@@ -185,6 +204,10 @@ void symbol_table::push_params(std::vector<token> &params){
         s->offset=offset;
         s->name=params[i].value;
         
+        if (!params[i].struct_ref.empty()){
+            s->struct_ref=params[i].struct_ref;
+        }
+
         offset+=8;
 
         table.push_back(s);
@@ -206,6 +229,10 @@ void symbol_table::push_struct(symbol_table* struct_table){
 
     }
 
+}
+
+void symbol_table::push_to_destroy(symbol* s){
+    to_destroy.push_back(s);
 }
 
 void symbol_table::push_label(symbol* s){

@@ -94,6 +94,8 @@ std::string node_type_to_string(ast_node_type type){
         "GOTO",
         "THIS",
         "CONSTRUCTOR",
+        "DESTRUCTOR",
+        "DESTROY",
     };
 
     return node_type_strs[(int)type];

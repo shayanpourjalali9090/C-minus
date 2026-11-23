@@ -12,6 +12,7 @@ enum class symbol_type{
     LABEL,
     CONSTRUCTOR,
     METHOD,
+    DESTRUCTOR,
 
 };
 
@@ -22,6 +23,7 @@ enum class symbol_table_type{
     STRUCT,
     CONSTRUCTOR,
     METHOD,
+    DESTRUCTOR,
 
 };
 
@@ -32,6 +34,7 @@ class symbol{
 
     symbol_type type;
     std::string name;
+    std::string struct_ref;
     int offset;
     int size;
     std::vector<int> array_sizes;
@@ -40,10 +43,12 @@ class symbol{
     class symbol_table* parent_struct;
     class symbol_table* memberof_struct;
     class symbol_table* constructor_table;
+    class symbol_table* destructor_table;
     class symbol_table* method_table;
     class ast_node* method_node;
     class ast_node* constructor_node;
-    bool is_array=false;
+    class ast_node* destructor_node;
+    bool is_array=false, is_struct=false, destroyed=false;
 
     symbol();
 
@@ -66,12 +71,15 @@ class symbol_table{
     symbol_table_type type;
     std::vector<symbol*> table;
     std::vector<symbol_table*> structs;
+    std::vector<symbol*> to_destroy;
     std::vector<symbol*> struct_fields;
     std::vector<symbol*> labels;
     std::vector<symbol*> constructors;
+    std::vector<symbol*> destructors;
     std::vector<symbol*> methods;
     symbol_table* parent;
     symbol_table* parent_struct;
+    symbol* destructor=nullptr;
     int cur_offset,locals_count=0;
     int total_size=0;
     int param_count=0;
@@ -93,7 +101,11 @@ class symbol_table{
 
     void push_label(symbol* s);
 
+    void push_to_destroy(symbol* s);
+
     symbol_table* push_constructor(symbol* s);
+
+    symbol_table* push_destructor(symbol* s);
 
     symbol_table* push_method(symbol* s);
 
@@ -104,6 +116,8 @@ class symbol_table{
     symbol* lookup_field(std::string field_name, std::string struct_ref);
 
     symbol* lookup_constructor(std::string struct_name, int argcount);
+
+    symbol* lookup_destructor(std::string struct_name);
 
     symbol* lookup_method(std::string name, std::string struct_name, int argcount);
 

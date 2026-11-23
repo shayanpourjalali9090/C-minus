@@ -21,6 +21,7 @@ const std::string keywords[]={
     "let","while","if","else","func",
     "return","break","continue",
     "struct", "goto", "constructor",
+    "destructor", "destroy",
 
 };
 
@@ -78,6 +79,10 @@ bool is_reg64(std::string str){
         || str=="RBP" || str=="RSP" || str=="R8"
         || str=="R9" || str=="R10" || str=="R11"
         || str=="R12" || str=="R13" || str=="R14";
+}
+
+bool isjmp(std::string str){
+    return str=="JMP" || str=="JE" || str=="JNE" || str=="JG" || str=="JL" || str=="JGE" || str=="JLE";
 }
 
 bool is_asm_keyword(std::string str){

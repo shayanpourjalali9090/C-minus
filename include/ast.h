@@ -37,6 +37,8 @@ enum class ast_node_type{
     GOTO,
     THIS,
     CONSTRUCTOR,
+    DESTRUCTOR,
+    DESTROY,
 
 };
 

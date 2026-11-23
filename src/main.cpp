@@ -583,7 +583,6 @@ ast_node* parse_shift(token_list &list);
 
 ast_node* parse_primary(token_list &list){
     // std::cout << "In parse primary: " << list.peek().to_string() << '\n';
-
     if (list.match(token_type::NUMBER)){
         ast_node* node=new ast_node(ast_node_type::NUMBER);
         
@@ -665,7 +664,7 @@ ast_node* parse_primary(token_list &list){
         node->value=list.expect(token_type::STRING).value;
         return node;
     }
-    printf("Returning nullptr\n");
+    // printf("Returning nullptr\n");
     return nullptr;
 
 }
@@ -1107,6 +1106,10 @@ ast_node* parse_declaration(token_list &list){
         return node;
 
     }
+    else if (list.match("@")){
+        list++;
+        node->struct_ref=list.expect(token_type::IDENTIFIER).value;
+    }
 
     if (list.match(";")){
         list.expect(";");
@@ -1148,7 +1151,11 @@ ast_node* parse_function(token_list &list){
 
     while (!list.end() && !list.match(")")){
         token param=list.expect(token_type::IDENTIFIER);
+        if (list.match("@")){
+            list++;
+            param.struct_ref=list.expect(token_type::IDENTIFIER).value;
 
+        }
         node->params.push_back(param);
 
         if (list.match(")"))break;
@@ -1343,6 +1350,10 @@ ast_node* parse_constructor(token_list &list){
 
     while (!list.match(")")){
         token t=list.expect(token_type::IDENTIFIER);
+        if (list.match("@")){
+            list++;
+            t.struct_ref=list.expect(token_type::IDENTIFIER).value;
+        }
         node->params.push_back(t);
         if (list.match(")"))break;
         list.expect(",");
@@ -1365,6 +1376,29 @@ ast_node* parse_constructor(token_list &list){
 
 }
 
+ast_node* parse_destructor(token_list &list){
+    ast_node* node=new ast_node(ast_node_type::DESTRUCTOR);
+
+    list++;
+    list.expect("(");
+    list.expect(")");
+    list.expect("{");
+
+    while (!list.match("}")){
+        ast_node* statement=parse_statement(list);
+        if (statement!=nullptr){
+            node->children.push(statement);
+
+        }
+
+
+    }    
+
+    list.expect("}");
+    return node;
+
+}
+
 ast_node* parse_struct(token_list &list){
     list++; //advance past let
     list++; //advance past struct
@@ -1380,6 +1414,9 @@ ast_node* parse_struct(token_list &list){
             decl=parse_constructor(list);
             
         }
+        else if (list.match("destructor")){
+            decl=parse_destructor(list);
+        }
         else{
             decl=parse_statement(list);
         }
@@ -1388,7 +1425,7 @@ ast_node* parse_struct(token_list &list){
 
         if (decl->type!=ast_node_type::ARRAY_DECLARATION && decl->type!=ast_node_type::DECLARATION && 
             decl->type!=ast_node_type::STRUCT_DECLARATION && decl->type!=ast_node_type::CONSTRUCTOR &&
-            decl->type!=ast_node_type::FUNCTION_DEFINITION){
+            decl->type!=ast_node_type::FUNCTION_DEFINITION && decl->type!=ast_node_type::DESTRUCTOR){
             emit_error(error::SYNTAX_ERROR,"Illegal statement within struct '"+node->identifier+"' definition");
         }
         
@@ -1457,6 +1494,18 @@ ast_node* parse_struct_declaration(token_list &list){
     return node;
 }
 
+ast_node* parse_destroy(token_list &list){
+    ast_node* node=new ast_node(ast_node_type::DESTROY);
+    list++;
+
+    node->right=parse_member_access(list);
+
+    list.expect(";");
+
+    return node;
+
+}
+
 ast_node* parse_statement(token_list &list){
     if (list.match(token_type::KEYWORD)){
         if (list.match("let")){
@@ -1489,6 +1538,9 @@ ast_node* parse_statement(token_list &list){
         if (list.match("goto")){
             return parse_goto(list);
         }
+        if (list.match("destroy")){
+            return parse_destroy(list);
+        }
 
     }
     else if (list.match(token_type::ASM)){
@@ -1503,7 +1555,7 @@ ast_node* parse_statement(token_list &list){
         }
         ast_node* node=parse_expression(list,true);
         list.expect(";");
-        std::cout << "returning node: " << (node==nullptr) << '\n';
+        
         return node;
     }
 
@@ -1514,7 +1566,7 @@ ast parse(token_list &list){
 
     while (!list.end()){
         ast_node* node=parse_statement(list);
-        std::cout << (node==nullptr) << '\n';
+        
         if (node!=nullptr)tree.push(node);
     }
     
@@ -1522,13 +1574,17 @@ ast parse(token_list &list){
     
 }
 
-void build_symbol_table(ast_node* node, symbol_table* table){   
+void build_symbol_table(ast_node* node, symbol_table* table){
     if (node==nullptr)return;
 
     if (node->type==ast_node_type::DECLARATION){
         symbol* s=new symbol(node->identifier);
         s->size=8;
 
+        if (!node->struct_ref.empty()){
+            s->struct_ref=node->struct_ref;
+        }
+        
         if (table->type!=symbol_table_type::GLOBAL){
             s->type=symbol_type::LOCAL;
 
@@ -1620,6 +1676,32 @@ void build_symbol_table(ast_node* node, symbol_table* table){
         table->push_struct(struct_table);
 
     }
+    else if (node->type==ast_node_type::DESTRUCTOR){
+        if (table->type!=symbol_table_type::STRUCT){
+            emit_error(error::SEMANTIC_ERROR,"Destructor outside struct");
+        }
+        if (table->destructor!=nullptr){
+            emit_error(error::SEMANTIC_ERROR,"Cannot have more than one destructor per struct");
+        }
+
+        symbol* s=new symbol(symbol_type::DESTRUCTOR);
+        s->name=table->name;
+        table->destructor=s;
+
+        symbol_table* global=table->push_destructor(s);
+        symbol_table* destructor_table=new symbol_table(symbol_table_type::DESTRUCTOR,global,0);
+
+        destructor_table->parent_struct=table;
+        s->destructor_node=node;
+        node->table=destructor_table;
+        s->destructor_table=destructor_table;
+
+        for (int i=0;i<node->children.size();i++){
+            build_symbol_table(node->children.get(i),destructor_table);
+
+        }
+
+    }
     else if (node->type==ast_node_type::CONSTRUCTOR){
         if (table->type!=symbol_table_type::STRUCT){
             emit_error(error::SEMANTIC_ERROR,"Constructor outside struct");
@@ -1646,7 +1728,7 @@ void build_symbol_table(ast_node* node, symbol_table* table){
     }
     else if (node->type==ast_node_type::STRUCT_DECLARATION){
         symbol* s=new symbol(node->identifier);
-
+        s->is_struct=true;
         s->parent_struct=table->lookup_struct(node->value);
         if (s->parent_struct==nullptr){
             emit_error(error::SEMANTIC_ERROR,"Unknown struct: '"+node->value+"'");
@@ -1746,7 +1828,11 @@ symbol* generate_member_access(asm_program &program, asm_function* function, sym
 
     if (node->left->type==ast_node_type::THIS){
         function->push(instruction("LEA","RAX","[RBP+16]"));
-        struct_ref=table->lookup_parent_struct()->name;
+        symbol_table* tmp=table->lookup_parent_struct();
+        if (tmp==nullptr){
+            emit_error(error::CODE_GENERATION_ERROR,"'this' keyword outside method/constructor");
+        }
+        struct_ref=tmp->name;
 
     }
     else{
@@ -1758,11 +1844,11 @@ symbol* generate_member_access(asm_program &program, asm_function* function, sym
             struct_ref=s->parent_struct->name;
         }
         else {
-            struct_ref=node->left->struct_ref;
+            struct_ref=s->struct_ref;
         }
         function->push(instruction("LEA", "RAX", "[" + s->get_address() + "]"));
 
-        if (s->type == symbol_type::GLOBAL && s->parent_struct != nullptr){
+        if (s->type == symbol_type::GLOBAL && s->is_struct){
             function->push(instruction("MOV", "RAX", "[RAX]"));
         }
     }
@@ -1779,28 +1865,20 @@ symbol* generate_member_access(asm_program &program, asm_function* function, sym
         symbol* field;
         if (!struct_ref.empty()){
             field=table->lookup_field(cur->left->identifier,struct_ref);
-            if (field==nullptr)goto ERR;
-            if (field->parent_struct != nullptr){
-                struct_ref = field->parent_struct->name;
-            }
-            else{
-                struct_ref = node->left->struct_ref;
-            }
         }
         else{
             field=table->lookup_field(cur->left->identifier,cur->left->struct_ref);
-            if (field==nullptr)goto ERR;
-            if (field->parent_struct != nullptr){
-                struct_ref = field->parent_struct->name;
-            }
-            else{
-                struct_ref = node->left->struct_ref;
-            }
-
         }
-        ERR:
+        
         if (field==nullptr){
             emit_error(error::CODE_GENERATION_ERROR,"Unknown struct field: '"+cur->left->identifier+"'");
+        }
+
+        if (field->parent_struct != nullptr){
+            struct_ref = field->parent_struct->name;
+        }
+        else{
+            struct_ref = field->struct_ref;
         }
 
         function->push(instruction("ADD","RAX",std::to_string(field->offset)));
@@ -1955,7 +2033,35 @@ void generate_expression(asm_program &program, asm_function* function, symbol_ta
             emit_error(error::CODE_GENERATION_ERROR,"Expected constructor call after '=>'");
         }
 
-        generate_expression(program,function,table,node->left,false);
+        symbol* id=nullptr;
+
+        if (node->left->type==ast_node_type::MEMBER_ACCESS){
+            id=generate_member_access(program,function,table,node->left);
+
+        }
+        else if (node->left->type==ast_node_type::IDENTIFIER){
+            id=table->lookup(node->left->identifier);
+            if (id==nullptr){
+                emit_error(error::CODE_GENERATION_ERROR,"Unknown symbol '"+node->left->identifier+"'");
+            }
+            generate_expression(program,function,table,node->left,true);
+
+        }
+
+        if (id!=nullptr){
+            if (!id->struct_ref.empty()){
+                function->push(instruction("MOV","RAX","[RAX]"));
+
+            }
+            else if (!id->is_struct){
+                emit_error(error::CODE_GENERATION_ERROR, "'"+id->name+"' does not belong to or reference a struct");
+
+            }
+        }
+        else{
+            generate_expression(program,function,table,node->left,false);
+
+        }
 
         symbol* s=table->lookup_constructor(node->right->identifier,node->right->args.size());
 
@@ -2061,7 +2167,7 @@ void generate_expression(asm_program &program, asm_function* function, symbol_ta
             function->push_local_label(donel);
             function->push(instruction("MOV","R8","8"));
 
-            generate_expression(program,function,table,node->right,false);
+            function->push(instruction("MOV","RAX","[RAX]"));
 
         }
 
@@ -2532,14 +2638,14 @@ void generate_expression(asm_program &program, asm_function* function, symbol_ta
     else if (node->type==ast_node_type::IDENTIFIER){
         symbol* s=table->lookup(node->identifier);
         if (s==nullptr){
-            emit_error(error::CODE_GENERATION_ERROR,sformat("Unkown symbol '%s'",node->identifier.c_str()));
+            emit_error(error::CODE_GENERATION_ERROR,sformat("Unknown symbol '%s'",node->identifier.c_str()));
         }
 
         std::string address=s->get_address();
 
         function->push(instruction("LEA","RAX","["+address+"]"));
 
-        if (s->type==symbol_type::GLOBAL && (s->is_array || s->parent_struct!=nullptr)){
+        if (s->type==symbol_type::GLOBAL && (s->is_array || s->is_struct)){
             function->push(instruction("MOV","RAX","[RAX]"));
 
         }
@@ -2673,14 +2779,34 @@ void generate_declaration(asm_program &program, asm_function* function, symbol_t
 
 }
 
+void generate_destruction(asm_function* function, symbol_table* table){
+    for (int i=0;i<table->to_destroy.size();i++){
+        symbol* s=table->to_destroy.at(i);
+        
+        symbol_table* parent_struct=table->to_destroy.at(i)->parent_struct;
+
+        symbol* destructor=parent_struct->destructor;
+
+        if (destructor==nullptr)continue;
+        
+        function->push(instruction("LEA","RAX","["+s->get_address()+"]"));
+        function->push(instruction("PUSH","RAX"));
+        function->push(instruction("CALL",destructor->get_address()));
+        function->push(instruction("ADD","RSP","8"));
+
+        
+    }
+
+}
+
 void generate_statement(asm_program &program, asm_function* function, symbol_table* table, ast_node* node);
 
 void generate_block(asm_program &program, asm_function* function, ast_node* node){
-    
     for (int i=0;i<node->children.size();i++){
         ast_node* statement=node->children.get(i);
         generate_statement(program,function,node->table,statement);
     }
+    generate_destruction(function,node->table);
 
 }
 
@@ -2692,6 +2818,12 @@ void generate_epilogue(asm_function* function){
 }
 
 void generate_return(asm_program &program, asm_function* function, symbol_table* table, ast_node* node){
+    symbol_table* tmp=table;
+    while (tmp->type!=symbol_table_type::GLOBAL){
+        generate_destruction(function,tmp);
+        tmp=tmp->parent;
+
+    }
     generate_expression(program,function,table,node->right,false);
     generate_epilogue(function);
 
@@ -2823,6 +2955,13 @@ void generate_asm(asm_program &program, asm_function* function, symbol_table* ta
             function->push(instruction(opcode,node->operand1));
         }
         else{
+            if (isjmp(opcode) && node->operand1_node->type==ast_node_type::IDENTIFIER && 
+            table->lookup_label(node->operand1_node->identifier)!=nullptr){
+                symbol* label=table->lookup_label(node->operand1_node->identifier);
+                function->push(instruction(opcode,label->get_address()));
+                return;
+
+            }
             generate_expression(program,function,table,node->operand1_node,false);
             function->push(instruction(opcode,"RAX"));
         }
@@ -2869,6 +3008,63 @@ void generate_goto(asm_program &program, asm_function* function, symbol_table* t
 
 }
 
+void generate_destroy(asm_program &program, asm_function* function, symbol_table* table, ast_node* node){
+    symbol* s;
+    
+    if (node->right->type==ast_node_type::IDENTIFIER){
+        
+        s=table->lookup(node->right->identifier);
+        if (s==nullptr){
+            emit_error(error::CODE_GENERATION_ERROR,"Unknown symbol '"+node->right->identifier+"'");
+        }
+
+        generate_expression(program,function,table,node->right,true);
+
+    }
+    else if (node->right->type==ast_node_type::MEMBER_ACCESS){
+        s=generate_member_access(program,function,table,node->right);
+
+    }
+    else{
+        emit_error(error::CODE_GENERATION_ERROR,"Expected symbol after destroy");
+
+    }
+
+    if (s->is_struct){
+        if (s->memberof_struct==nullptr)return;
+        
+        symbol* s2=table->lookup_struct(s->parent_struct->name)->destructor;
+        
+        if (s2!=nullptr){
+            function->push(instruction("PUSH","RAX"));
+            function->push(instruction("CALL",s2->get_address()));
+            function->push(instruction("ADD","RSP","8"));
+
+        }
+
+    }
+    else if (!s->struct_ref.empty()){
+        if (table->lookup_struct(s->struct_ref)==nullptr){
+            emit_error(error::CODE_GENERATION_ERROR,"Unknown struct '"+s->struct_ref+"'");
+        }
+
+        symbol* s2=table->lookup_struct(s->struct_ref)->destructor;
+
+        if (s2!=nullptr){
+            function->push(instruction("MOV","RAX","[RAX]"));
+            function->push(instruction("PUSH","RAX"));
+            function->push(instruction("CALL",s2->get_address()));
+            function->push(instruction("ADD","RSP","8"));
+
+        }
+        
+    }
+    else{
+        emit_error(error::CODE_GENERATION_ERROR, "'"+s->name+"' does not belong to or reference a struct");
+    }
+
+}
+
 void generate_struct_declaration(asm_program &program, asm_function* function, symbol_table* table, ast_node* node);
 
 void generate_statement(asm_program &program, asm_function* function, symbol_table* table, ast_node* node){
@@ -2911,6 +3107,9 @@ void generate_statement(asm_program &program, asm_function* function, symbol_tab
     else if (node->type==ast_node_type::GOTO){
         generate_goto(program,function,table,node);
     }
+    else if (node->type==ast_node_type::DESTROY){
+        generate_destroy(program,function,table,node);
+    }
     else{
         generate_expression(program,function,table,node,false);
     }
@@ -2936,6 +3135,8 @@ void generate_function(asm_program &program, ast_node* node){
 
     }
 
+    generate_destruction(function,table);
+
     generate_epilogue(function);
 
     program.push_function(function);
@@ -2959,6 +3160,9 @@ void generate_struct_declaration(asm_program &program, asm_function* function, s
     }
 
     if (node->construct){
+        if (s->type==symbol_type::LOCAL){
+            table->push_to_destroy(s);
+        }
         symbol* s2=table->lookup_constructor(s->parent_struct->name,node->args.size());
 
         if (s2==nullptr){
@@ -3002,9 +3206,37 @@ void generate_constructor(asm_program &program, symbol* s, ast_node* node){
 
     }
 
+    generate_destruction(constructor,table);
+
     generate_epilogue(constructor);
 
     program.push_function(constructor);
+    
+}
+
+void generate_destructor(asm_program &program, symbol* s, ast_node* node){
+    asm_function* destructor=new asm_function("??"+s->name);
+
+    symbol_table* table=node->table;
+
+    destructor->push(instruction("PUSH","RBP"));
+    destructor->push(instruction("MOV","RBP","RSP"));
+
+    if (table->total_size){
+        destructor->push(instruction("SUB","RSP",std::to_string(table->total_size)));
+    }
+
+    for (int i=0;i<node->children.size();i++){
+        ast_node* statement=node->children.get(i);
+        generate_statement(program,destructor,table,statement);
+
+    }
+
+    generate_destruction(destructor,table);
+
+    generate_epilogue(destructor);
+
+    program.push_function(destructor);
     
 }
 
@@ -3026,6 +3258,8 @@ void generate_method(asm_program &program, symbol* s, ast_node* node){
 
     }
 
+    generate_destruction(method,table);
+
     generate_epilogue(method);
 
     program.push_function(method);
@@ -3044,6 +3278,11 @@ void generate_code(asm_program &program, symbol_table* table, ast &tree){
     
     for (int i=0;i<table->constructors.size();i++){
         generate_constructor(program,table->constructors.at(i),table->constructors.at(i)->constructor_node);
+
+    }
+
+    for (int i=0;i<table->destructors.size();i++){
+        generate_destructor(program,table->destructors.at(i),table->destructors.at(i)->destructor_node);
 
     }
 

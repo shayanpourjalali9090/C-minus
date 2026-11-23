@@ -24,6 +24,7 @@ class token{
 
     token_type type;
     std::string value;
+    std::string struct_ref;
     int line_number;
 
     token();

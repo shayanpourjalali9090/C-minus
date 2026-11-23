@@ -28,6 +28,8 @@ void is_octal(std::string str);
 
 inline bool is_numeric(char c);
 
+bool isjmp(std::string str);
+
 bool is_numeric(std::string str);
 
 bool is_operator(std::string &str);
