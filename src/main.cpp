@@ -1942,8 +1942,15 @@ symbol* generate_member_access(asm_program &program, asm_function* function, sym
 
 void generate_expression(asm_program &program, asm_function* function, symbol_table* table, ast_node* node, bool get_address){
     if (node==nullptr)return;
-    
-    if (is_binary_operator(node->value) && node->type==ast_node_type::EXPRESSION){
+
+    if (node->type==ast_node_type::NUMBER){
+        function->push(instruction("MOV","RAX",node->value));
+    }
+    else if (node->type==ast_node_type::STRING){
+        std::string str=program.push_string(node->value);
+        function->push(instruction("MOV","RAX",str));
+    }
+    else if (is_binary_operator(node->value) && node->type==ast_node_type::EXPRESSION){
         generate_expression(program,function,table,node->left, false);
         function->push(instruction("PUSH","RAX"));
         function->push(instruction("PUSH","R8"));
@@ -2623,13 +2630,6 @@ void generate_expression(asm_program &program, asm_function* function, symbol_ta
         generate_expression(program,function,table,node->false_node,false);
         function->push_local_label(donel);
 
-    }
-    else if (node->type==ast_node_type::NUMBER){
-        function->push(instruction("MOV","RAX",node->value));
-    }
-    else if (node->type==ast_node_type::STRING){
-        std::string str=program.push_string(node->value);
-        function->push(instruction("MOV","RAX",str));
     }
     else if (node->type==ast_node_type::THIS){
         function->push(instruction("MOV","RAX","[RBP+16]"));
@@ -3462,7 +3462,6 @@ int main(int argc, char** argv){
     get_includes(file);
 
     token_list tokens=lex(file);
-
     remove_includes(tokens);
     // return 0;
     ast tree=parse(tokens);
